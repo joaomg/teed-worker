@@ -1,3 +1,5 @@
+import datetime
+import json
 import os
 import sys
 
@@ -20,12 +22,27 @@ queue_name = os.environ.get("QUEUE_NAME", "default-queue")
 
 channel.queue_declare(queue=queue_name, durable=True)
 
-message = " ".join(sys.argv[1:]) or "Hello World!"
+print(len(sys.argv))
+
+message_data = (
+    json.loads(" ".join(sys.argv[1:]))
+    if len(sys.argv) > 1
+    else {
+        "message": "Hello World",
+        "timestamp": datetime.datetime.now().timestamp(),
+    }
+)
+
+json_message = json.dumps(message_data)
+
 channel.basic_publish(
     exchange="",
     routing_key=queue_name,
-    body=message,
-    properties=pika.BasicProperties(delivery_mode=pika.spec.PERSISTENT_DELIVERY_MODE),
+    body=json_message,
+    properties=pika.BasicProperties(
+        content_type="application/json",
+        delivery_mode=pika.spec.PERSISTENT_DELIVERY_MODE,
+    ),
 )
-print(" [x] Sent %r" % message)
+print(" [x] Sent %r" % json_message)
 connection.close()
