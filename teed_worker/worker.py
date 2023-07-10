@@ -1,4 +1,6 @@
 import json
+import logging
+import logging.config
 import os
 import signal
 import sys
@@ -7,22 +9,11 @@ import pika
 
 
 class Worker:
-    def callback(self, ch, method, properties, body):
-        if properties.content_type == "application/json":
-            message_data = json.loads(body.decode())
-            print(f"Received message: {message_data}")
-            # Process the received message here
-        else:
-            print("Error! Message content type isn't JSON.")
-
-    def handle_kill_signal(self, signum, frame):
-        self._channel.stop_consuming()
-        print("Received kill signal. Gracefully terminating the consumer.")
-        sys.exit(0)
-
     def __init__(
         self, host: str, port: int, username: str, password: str, queue_name: str
     ) -> None:
+        self._logger = logging.getLogger("workerLogger")
+
         # Set up RabbitMQ connection parameters
         connection = pika.BlockingConnection(
             pika.ConnectionParameters(
@@ -35,25 +26,41 @@ class Worker:
                 ),
             )
         )
+        self._logger.info("Connection opened")
 
         # Create a channel
         channel = connection.channel()
+        self._logger.info("Channel created")
 
         # Declare the queue from which to consume
         channel.queue_declare(queue_name, durable=True)
+        self._logger.info(f"Queue {queue_name} declared")
 
         # Set up the callback function to handle incoming messages
         channel.basic_consume(
             queue=queue_name, on_message_callback=self.callback, auto_ack=True
         )
+        self._logger.info(f"Ready to consume messages")
 
         self._queue_name = queue_name
         self._channel = channel
 
-    def start_consuming(self):
-        print(f"Starting worker, listening to {self._queue_name} queue.")
+    def callback(self, ch, method, properties, body):
+        if properties.content_type == "application/json":
+            message_data = json.loads(body.decode())
+            self._logger.debug(f"Received message: {message_data}")
+            # Process the received message here
+            # @@
+        else:
+            self._logger.debug("Error! Message content type isn't JSON")
 
-        # Start consuming messages
+    def handle_kill_signal(self, signum, frame):
+        self._channel.stop_consuming()
+        self._logger.info("Received kill signal. Gracefully terminating the consumer")
+        sys.exit(0)
+
+    def start_consuming(self):
+        self._logger.info(f"Start consuming, listening to {self._queue_name} queue")
         self._channel.start_consuming()
 
     def stop_consuming(self):
@@ -61,6 +68,8 @@ class Worker:
 
 
 def main():
+    logging.config.fileConfig("logging.conf")
+
     host = os.environ.get("RABBITMQ_HOST", "localhost")
     port = os.environ.get("RABBITMQ_PORT", 5672)
     username = os.environ.get("RABBITMQ_USERNAME", "guest")
