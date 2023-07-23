@@ -91,7 +91,7 @@ def start_worker(request, rabbitmq_queue):
     # which stored the logging messages in a dict[list]
     # per logging level
     logging.config.fileConfig("logging.conf")
-    consumer_log = logging.getLogger("workerLogger")
+    consumer_log = logging.getLogger("worker-logger")
     consumer_log_handler = MockLoggingHandler(level=logging.DEBUG)
     consumer_log.addHandler(consumer_log_handler)
     consumer_log_messages = consumer_log_handler.messages
@@ -135,11 +135,21 @@ def test_send_json(start_worker, rabbitmq_channel, rabbitmq_queue):
     consumer_log_messages = start_worker
 
     # Send a test message
-    message_data = {"message": "Test message"}
+    message = {
+        "uuid": "093b1603-240b-4660-9bad-861caee1e7a8",
+        "created_on": "2023-07-22 18:24:47",
+        "created_by": "joaomg",
+        "type": "bulkcm_split",
+        "state": "todo",
+        "args": {
+            "file_path": "",
+            "output_dir": "",
+        },
+    }
     rabbitmq_channel.basic_publish(
         exchange="",
         routing_key=rabbitmq_queue,
-        body=json.dumps(message_data),
+        body=json.dumps(message),
         properties=pika.BasicProperties(
             content_type="application/json",
             delivery_mode=pika.spec.PERSISTENT_DELIVERY_MODE,
@@ -160,7 +170,7 @@ def test_send_json(start_worker, rabbitmq_channel, rabbitmq_queue):
     )
 
     debug_messages = consumer_log_messages.get("debug")
-    assert message_in_log(f"Received message: {message_data}", debug_messages)
+    assert message_in_log(f"Received task: {message.get('uuid')}", debug_messages)
 
 
 def test_send_non_json(start_worker, rabbitmq_channel, rabbitmq_queue):
@@ -192,4 +202,6 @@ def test_send_non_json(start_worker, rabbitmq_channel, rabbitmq_queue):
     )
 
     debug_messages = consumer_log_messages.get("debug")
-    assert message_in_log("Error! Message content type isn't JSON", debug_messages)
+    assert message_in_log(
+        "Error! Message content type isn't JSON, ignoring.", debug_messages
+    )

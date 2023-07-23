@@ -1,4 +1,3 @@
-import json
 import logging
 import logging.config
 import os
@@ -6,13 +5,16 @@ import signal
 import sys
 
 import pika
+from teed import bulkcm
+from teed_worker.models import Task, Type, State
+from pydantic import ValidationError
 
 
 class Worker:
     def __init__(
         self, host: str, port: int, username: str, password: str, queue_name: str
     ) -> None:
-        self._logger = logging.getLogger("workerLogger")
+        self._logger = logging.getLogger("worker-logger")
 
         # Set up RabbitMQ connection parameters
         connection = pika.BlockingConnection(
@@ -47,12 +49,25 @@ class Worker:
 
     def callback(self, ch, method, properties, body):
         if properties.content_type == "application/json":
-            message_data = json.loads(body.decode())
-            self._logger.debug(f"Received message: {message_data}")
-            # Process the received message here
-            # @@
+            try:
+                task = Task.model_validate_json(body.decode())
+                self._logger.debug(f"Received task: {task.uuid}")
+            except ValidationError as e:
+                self._logger.error(str(e))
+
+                # cancel this call
+                return
+
+            try:
+                if task.type == Type.bulkcm_split:
+                    bulkcm.split(**task.args)
+                    task.state = State.done
+                    self._logger.debug(f"Finished processing task")
+            except Exception as e:
+                task.state = State.failed
+                self._logger.error(str(e))
         else:
-            self._logger.debug("Error! Message content type isn't JSON")
+            self._logger.debug("Error! Message content type isn't JSON, ignoring.")
 
     def handle_kill_signal(self, signum, frame):
         self._channel.stop_consuming()
@@ -74,7 +89,7 @@ def main():
     port = os.environ.get("RABBITMQ_PORT", 5672)
     username = os.environ.get("RABBITMQ_USERNAME", "guest")
     password = os.environ.get("RABBITMQ_PASSWORD", "guest")
-    queue_name = os.environ.get("QUEUE_NAME", "default-queue")
+    queue_name = os.environ.get("QUEUE_NAME", "teed-worker")
 
     worker = Worker(host, port, username, password, queue_name)
 

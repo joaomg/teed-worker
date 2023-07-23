@@ -18,7 +18,7 @@ connection = pika.BlockingConnection(
 )
 channel = connection.channel()
 
-queue_name = os.environ.get("QUEUE_NAME", "default-queue")
+queue_name = os.environ.get("QUEUE_NAME", "teed-worker")
 
 channel.queue_declare(queue=queue_name, durable=True)
 
